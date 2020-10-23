@@ -3,7 +3,11 @@ package net.fornwall.jelf;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.io.ByteArrayOutputStream;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
@@ -16,6 +20,30 @@ import java.util.EnumSet;
 import java.util.List;
 
 class BasicTest {
+
+	@Test
+	public void testLS() throws IOException {
+		ByteArrayOutputStream baos=new ByteArrayOutputStream();
+		FileInputStream fis = new FileInputStream("./a.out");
+		byte[] buf=new byte[1024];
+		int len;
+		while((len=fis.read(buf))>0)
+			baos.write(buf, 0, len);
+
+		ElfFile fromStream = ElfFile.from(baos.toByteArray());
+		byte[]  arr=baos.toByteArray();
+		int entry_point = (int) fromStream.entry_point;
+
+		ByteBuffer bb = ByteBuffer.wrap(arr);
+		bb.position(entry_point);
+		for(int i=0;true;++i){
+			byte b = bb.get();
+			System.out.println(Integer.toHexString(b));
+			b=arr[entry_point];
+			System.out.println(Integer.toHexString(b));
+		}
+
+	}
 
 	private interface TestMethod {
 		void test(ElfFile file) throws Exception;
@@ -33,7 +61,7 @@ class BasicTest {
 		}
 	}
 
-	private static void assertSectionNames(ElfFile file, String... expectedSectionNames) throws IOException {
+	private static void assertSectionNames(ElfFile file, String... expectedSectionNames) {
 		for (int i = 0; i < expectedSectionNames.length; i++) {
 			String expected = expectedSectionNames[i];
 			String actual = file.getSection(i).header.getName();
@@ -45,7 +73,7 @@ class BasicTest {
 		}
 	}
 
-	private void validateHashTable(ElfFile file) throws IOException {
+	private void validateHashTable(ElfFile file) {
 		ElfSymbolTableSection dynsym = (ElfSymbolTableSection) file.firstSectionByType(ElfSectionHeader.SHT_DYNSYM);
 
 		ElfHashTable hashTable = file.firstSectionByType(ElfHashTable.class);
@@ -75,7 +103,7 @@ class BasicTest {
 		parseFile("android_arm_tset", file -> {
 			Assertions.assertEquals(ElfFile.CLASS_32, file.objectSize);
 			Assertions.assertEquals(ElfFile.DATA_LSB, file.encoding);
-			Assertions.assertEquals(ElfFile.FT_EXEC, file.file_type);
+			Assertions.assertEquals(ElfFile.ET_EXEC, file.e_type);
 			Assertions.assertEquals(ElfFile.ARCH_ARM, file.arch);
 			Assertions.assertEquals(32, file.ph_entry_size);
 			Assertions.assertEquals(7, file.num_ph);
@@ -88,8 +116,11 @@ class BasicTest {
 
 			ElfDynamicSection dynamic = file.getDynamicSection();
 			Assertions.assertNotNull(dynamic);
+			Assertions.assertEquals(".dynamic", dynamic.header.getName());
 			Assertions.assertEquals(8, dynamic.header.entry_size);
 			Assertions.assertEquals(248, dynamic.header.size);
+			Assertions.assertEquals(ElfDynamicSection.DF_BIND_NOW, dynamic.getFlags());
+			Assertions.assertEquals(ElfDynamicSection.DF_1_NOW, dynamic.getFlags1());
 
 			Assertions.assertEquals(Arrays.asList("libncursesw.so.6", "libc.so", "libdl.so"), dynamic.getNeededLibraries());
 			Assertions.assertEquals("/data/data/com.termux/files/usr/lib", dynamic.getRunPath());
@@ -110,7 +141,7 @@ class BasicTest {
 		parseFile("android_arm_libncurses", file -> {
 			Assertions.assertEquals(ElfFile.CLASS_32, file.objectSize);
 			Assertions.assertEquals(ElfFile.DATA_LSB, file.encoding);
-			Assertions.assertEquals(ElfFile.FT_DYN, file.file_type);
+			Assertions.assertEquals(ElfFile.ET_DYN, file.e_type);
 			Assertions.assertEquals(ElfFile.ARCH_ARM, file.arch);
 			Assertions.assertEquals("/system/bin/linker", file.getInterpreter());
 
@@ -122,6 +153,7 @@ class BasicTest {
 			Assertions.assertEquals("gold 1.11", ((ElfNoteSection) noteSections.get(0)).descriptorAsString());
 
 			ElfNoteSection noteSection = file.firstSectionByType(ElfNoteSection.class);
+			Assertions.assertEquals(".note.gnu.gold-version", noteSection.header.getName());
 			Assertions.assertSame(noteSection, noteSections.get(0));
 
 			ElfSymbolTableSection dynsym = (ElfSymbolTableSection) file.firstSectionByType(ElfSectionHeader.SHT_DYNSYM);
@@ -168,6 +200,10 @@ class BasicTest {
 
 			validateHashTable(file);
 
+			ElfDynamicSection dynamic = file.firstSectionByType(ElfDynamicSection.class);
+			Assertions.assertEquals(ElfDynamicSection.DF_SYMBOLIC | ElfDynamicSection.DF_BIND_NOW, dynamic.getFlags());
+			Assertions.assertEquals(ElfDynamicSection.DF_1_NOW, dynamic.getFlags1());
+
 			Assertions.assertTrue(file.getProgramHeader(0).isReadable());
 			Assertions.assertFalse(file.getProgramHeader(0).isWriteable());
 			Assertions.assertFalse(file.getProgramHeader(0).isExecutable());
@@ -183,7 +219,7 @@ class BasicTest {
 		parseFile("linux_amd64_bindash", file -> {
 			Assertions.assertEquals(ElfFile.CLASS_64, file.objectSize);
 			Assertions.assertEquals(ElfFile.DATA_LSB, file.encoding);
-			Assertions.assertEquals(ElfFile.FT_DYN, file.file_type);
+			Assertions.assertEquals(ElfFile.ET_DYN, file.e_type);
 			Assertions.assertEquals(ElfFile.ARCH_X86_64, file.arch);
 			Assertions.assertEquals(56, file.ph_entry_size);
 			Assertions.assertEquals(9, file.num_ph);
